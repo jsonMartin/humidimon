@@ -1,0 +1,11 @@
+html
+  head
+   title=LedStatus
+   script.
+    setTimeout(() => location.href='/', 1000)
+  body
+    if lcdEnabled
+      h1 LCD is ON
+    else
+      h1 LCD is OFF
+    a(href = '/') Going back automatically in 1 sec, but click here if it's laggin
