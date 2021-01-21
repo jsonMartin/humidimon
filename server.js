@@ -21,17 +21,22 @@ log4js.configure({
   categories: { default: { appenders: ['console', 'humidimon'], level: 'trace' } },
 });
 const logger = log4js.getLogger('humidimon');
-const ObjectsToCsv = require('objects-to-csv');
+
+const sqlite3 = require('sqlite3');
+const { open } = require('sqlite');
+
+const DB_UPDATE_INTERVAL = 60000; // in MS
 
 const PORT = process.env.PORT;
 
-const SENSOR_TYPE = 22;
+// DHT sensor configuration
+const SENSOR_TYPE = 22; // 22 for DHT-22, 11 for DHT-11 sensor
 const SENSORS = {
+  // Contains the value of the GPIO data pin
   Inside: 4,
   Outside: 21,
 };
-const SENSOR_INTERVAL = 2500; // in MS
-const CSV_INTERVAL = 60000; // in MS
+const SENSOR_INTERVAL = 2500; // How long to poll sensor for updates, in MS
 
 // Notification settings
 const NOTIFICATION_THROTTLE_TIME = 1800000; // 30 min (in ms)
@@ -43,20 +48,10 @@ const UPPER_HUMIDITY_LIMIT = 99; // In percent
 const convertCelsiusToFahrenheit = (celsius) => (celsius * 9) / 5 + 32;
 const formatNumber = (number) => parseFloat(number.toFixed(2));
 
-function lcdOn() {
-  lcd.displaySync();
-  lcdEnabled = true;
-}
-
-function lcdOff() {
-  lcd.noDisplaySync();
-  lcdEnabled = false;
-}
-
 let lcdEnabled = false;
 let lcdTimerEnabled = process.env.LCD_TIMER;
 
-function setLcdTimers() {
+const setLcdTimers = () => {
   const lcdTimerOn = () => {
     if (lcdTimerEnabled) {
       lcdOn();
@@ -80,7 +75,66 @@ function setLcdTimers() {
   at(process.env.LCD_TIMER_ON_TIME, lcdTimerOn);
   at(process.env.LCD_TIMER_OFF_TIME, lcdTimerOff);
   logger.info(`Set ON Timer for ${process.env.LCD_TIMER_ON_TIME}\nOFF Timer for ${process.env.LCD_TIMER_OFF_TIME}`);
-}
+};
+
+const lcdOn = () => {
+  lcd.displaySync();
+  lcdEnabled = true;
+};
+
+const lcdOff = () => {
+  lcd.noDisplaySync();
+  lcdEnabled = false;
+};
+
+const writeSensorDataToLCD = (line1 = '', line2 = '') => {
+  lcd.printLineSync(0, line1);
+  lcd.printLineSync(1, line2);
+};
+
+const logToDB = async () => {
+  const db = await open({
+    filename: 'humidimon.db',
+    driver: sqlite3.Database,
+  });
+
+  await db.run(
+    'INSERT INTO sensorData (timestamp, temperature, humidity, outsideTemperature, outsideHumidity) VALUES (?, ?, ?, ?, ?)',
+    stats['lastUpdated'],
+    formatNumber(temperature),
+    formatNumber(humidity),
+    formatNumber(outsideTemperature),
+    formatNumber(outsideHumidity)
+  );
+};
+
+const sendText = async (body = '') => {
+  logger.info('Attempting to send text...');
+
+  let result = await twilio.messages.create({
+    body,
+    to: process.env.TWILIO_SEND_TO_NUMBER,
+    from: process.env.TWILIO_SEND_FROM_NUMBER,
+  });
+
+  if (!result.errorCode) logger.info(`Successfully sent text with contents: ${result.body}`);
+  else logger.error(`Error sending text: ${result.errorCode}`);
+};
+
+const sendHumidityAlert = throttle((body) => sendText(body), NOTIFICATION_THROTTLE_TIME);
+const sendTemperatureAlert = throttle((body) => sendText(body), NOTIFICATION_THROTTLE_TIME);
+
+const notifyIfTemperatureOutOfRange = () => {
+  if (temperature <= LOWER_TEMPERATURE_LIMIT) sendTemperatureAlert(`Temperature has fallen BELOW threshold: ${temperature.toFixed(2)} F`);
+  else if (temperature >= UPPER_TEMPERATURE_LIMIT) sendTemperatureAlert(`Temperature has risen ABOVE threshold: ${temperature.toFixed(2)} F`);
+};
+
+const notifyIfHumidityOutOfRange = () => {
+  if (humidity <= LOWER_HUMIDITY_LIMIT) sendHumidityAlert(`Humidity has fallen BELOW threshold: ${humidity.toFixed(2)}%`);
+  else if (humidity >= UPPER_HUMIDITY_LIMIT) sendHumidityAlert(`Humidity has risen ABOVE threshold: ${humidity.toFixed(2)}%`);
+};
+
+const sensorTriggers = [notifyIfTemperatureOutOfRange, notifyIfHumidityOutOfRange]; // List of functions to be ran every sensor loop
 
 const statsString = (sep = '\n') => {
   let statsString = '';
@@ -103,7 +157,9 @@ const stats = {
   lastUpdated: undefined,
   uptime: formatISO9075(Date.now()),
 };
+
 let [humidity, temperature, outsideHumidity, outsideTemperature] = [0, 0, 0, 0];
+
 async function readSensors() {
   try {
     // Read Inside Sensor
@@ -144,41 +200,6 @@ ${statsString()}----------------------------------------------------------------
   }
 }
 
-async function logToCSV() {
-  const csv = new ObjectsToCsv([
-    {
-      time: formatISO9075(Date.now()),
-      temperature: formatNumber(temperature),
-      humidity: formatNumber(humidity),
-      outsideTemperature: formatNumber(outsideTemperature),
-      outsideHumidity: formatNumber(outsideHumidity),
-    },
-  ]);
-
-  await csv.toDisk('./humidimon.csv', { append: true });
-  logger.info('Successfully wrote to CSV file');
-}
-
-function writeSensorDataToLCD(line1 = '', line2 = '') {
-  lcd.printLineSync(0, line1);
-  lcd.printLineSync(1, line2);
-}
-
-const sendHumidityAlert = throttle((body) => sendText(body), NOTIFICATION_THROTTLE_TIME);
-const sendTemperatureAlert = throttle((body) => sendText(body), NOTIFICATION_THROTTLE_TIME);
-
-const notifyIfTemperatureOutOfRange = () => {
-  if (temperature <= LOWER_TEMPERATURE_LIMIT) sendTemperatureAlert(`Temperature has fallen BELOW threshold: ${temperature.toFixed(2)} F`);
-  else if (temperature >= UPPER_TEMPERATURE_LIMIT) sendTemperatureAlert(`Temperature has risen ABOVE threshold: ${temperature.toFixed(2)} F`);
-};
-
-const notifyIfHumidityOutOfRange = () => {
-  if (humidity <= LOWER_HUMIDITY_LIMIT) sendHumidityAlert(`Humidity has fallen BELOW threshold: ${humidity.toFixed(2)}%`);
-  else if (humidity >= UPPER_HUMIDITY_LIMIT) sendHumidityAlert(`Humidity has risen ABOVE threshold: ${humidity.toFixed(2)}%`);
-};
-
-const sensorTriggers = [notifyIfTemperatureOutOfRange, notifyIfHumidityOutOfRange]; // List of functions to be ran every sensor loop
-
 async function sensorLoop() {
   await readSensors();
   writeSensorDataToLCD(`Temp:     ${temperature.toFixed(2)}F`, `Humidity: ${humidity.toFixed(2)}%`);
@@ -186,19 +207,6 @@ async function sensorLoop() {
   for (sensorTrigger of sensorTriggers) {
     sensorTrigger(); // Run Sensor Trigger Hooks
   }
-}
-
-async function sendText(body = '') {
-  logger.info('Attempting to send text...');
-
-  let result = await twilio.messages.create({
-    body,
-    to: process.env.TWILIO_SEND_TO_NUMBER,
-    from: process.env.TWILIO_SEND_FROM_NUMBER,
-  });
-
-  if (!result.errorCode) logger.info(`Successfully sent text with contents: ${result.body}`);
-  else logger.error(`Error sending text: ${result.errorCode}`);
 }
 
 function server() {
@@ -229,6 +237,7 @@ function server() {
     logger.info(`Server started, listening on ${PORT}`);
   });
 }
+
 function init() {
   sensor.setMaxRetries(10);
   sensor.initialize(22, 4);
@@ -245,7 +254,7 @@ async function main() {
   server();
 
   setInterval(sensorLoop, SENSOR_INTERVAL);
-  setInterval(logToCSV, CSV_INTERVAL);
+  setInterval(logToDB, DB_UPDATE_INTERVAL);
   sendText('Humidimon successfully started');
 }
 

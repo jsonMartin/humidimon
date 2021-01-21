@@ -12,6 +12,7 @@
 - Timers
   - Uses the elegant intelligent date parsing framework `datejs`:  [http://date.js.org/](http://date.js.org/)
   - Uses dates such as `10 am` or `11:30 pm`
+- Logs to Database (currently set to every 1 min)
 
 # Sample `.env` file
 ```
@@ -26,6 +27,7 @@ LCD_TIMER=true
 ```
 
 # TO-DO
-- [ ] Sql Lite
+- [ ] Customize DB update frequency in `env` file
+- [x] Sql Lite
 - [x] Add instructions for environment variables
 - [x] Add Timer
