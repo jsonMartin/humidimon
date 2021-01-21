@@ -4,6 +4,8 @@ const { formatISO9075 } = require('date-fns');
 
 const { throttle } = require('lodash');
 
+const at = require('run-at');
+
 const sensor = require('node-dht-sensor').promises;
 const lcd = new (require('raspberrypi-liquid-crystal'))(1, 0x27, 16, 2);
 
@@ -41,6 +43,45 @@ const UPPER_HUMIDITY_LIMIT = 99; // In percent
 const convertCelsiusToFahrenheit = (celsius) => (celsius * 9) / 5 + 32;
 const formatNumber = (number) => parseFloat(number.toFixed(2));
 
+function lcdOn() {
+  lcd.displaySync();
+  lcdEnabled = true;
+}
+
+function lcdOff() {
+  lcd.noDisplaySync();
+  lcdEnabled = false;
+}
+
+let lcdEnabled = false;
+let lcdTimerEnabled = process.env.LCD_TIMER;
+
+function setLcdTimers() {
+  const lcdTimerOn = () => {
+    if (lcdTimerEnabled) {
+      lcdOn();
+      logger.info('TIMER: Turning on LCD');
+      setTimeout(() => {
+        at(process.env.LCD_TIMER_ON_TIME, lcdTimerOn);
+      }, 90000); // Wait until the next minute, to prevent retriggering an alarm for the same minute
+    }
+  };
+
+  const lcdTimerOff = () => {
+    if (lcdTimerEnabled) {
+      lcdOff();
+      logger.info('TIMER: Turning off LCD');
+      setTimeout(() => {
+        at(process.env.LCD_TIMER_OFF_TIME, lcdTimerOff);
+      }, 90000); // Wait until the next minute, to prevent retriggering an alarm for the same minute
+    }
+  };
+
+  at(process.env.LCD_TIMER_ON_TIME, lcdTimerOn);
+  at(process.env.LCD_TIMER_OFF_TIME, lcdTimerOff);
+  logger.info(`Set ON Timer for ${process.env.LCD_TIMER_ON_TIME}\nOFF Timer for ${process.env.LCD_TIMER_OFF_TIME}`);
+}
+
 const statsString = (sep = '\n') => {
   let statsString = '';
 
@@ -63,8 +104,6 @@ const stats = {
   uptime: formatISO9075(Date.now()),
 };
 let [humidity, temperature, outsideHumidity, outsideTemperature] = [0, 0, 0, 0];
-let lcdEnabled = false;
-
 async function readSensors() {
   try {
     // Read Inside Sensor
@@ -155,7 +194,7 @@ async function sendText(body = '') {
   let result = await twilio.messages.create({
     body,
     to: process.env.TWILIO_SEND_TO_NUMBER,
-    from: process.env.TWILIO_SEND_FROM_NUMBER
+    from: process.env.TWILIO_SEND_FROM_NUMBER,
   });
 
   if (!result.errorCode) logger.info(`Successfully sent text with contents: ${result.body}`);
@@ -177,14 +216,12 @@ function server() {
   });
 
   app.get('/led/off', (request, response) => {
-    lcd.noDisplaySync();
-    lcdEnabled = false;
+    lcdOff();
     response.render('ledStatus', { lcdEnabled });
   });
 
   app.get('/led/on', (request, response) => {
-    lcd.displaySync();
-    lcdEnabled = true;
+    lcdOn();
     response.render('ledStatus', { lcdEnabled });
   });
 
@@ -192,14 +229,15 @@ function server() {
     logger.info(`Server started, listening on ${PORT}`);
   });
 }
-
 function init() {
   sensor.setMaxRetries(10);
   sensor.initialize(22, 4);
   sensor.initialize(22, 21);
+
   lcd.beginSync(); // Required to initialize display before using
   lcd.displaySync(); // Turns on the display
   lcdEnabled = true;
+  setLcdTimers();
 }
 
 async function main() {

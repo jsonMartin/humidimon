@@ -9,8 +9,23 @@
 - Twilio Notifications
 - Customizable Alerts (temperature/humidity range)
 - Hook Actions
+- Timers
+  - Uses the elegant intelligent date parsing framework `datejs`:  [http://date.js.org/](http://date.js.org/)
+  - Uses dates such as `10 am` or `11:30 pm`
 
-# Future Improvements:
+# Sample `.env` file
+```
+ACCOUNT_SID=your account sid
+AUTH_TOKEN=your auth token
+TWILIO_SEND_TO_NUMBER=+1234567890
+TWILIO_SEND_FROM_NUMBER=+1234567890
+PORT=12345
+LCD_TIMER_ON_TIME='10 am'
+LCD_TIMER_OFF_TIME='11 pm'
+LCD_TIMER=true
+```
+
+# TO-DO
 - [ ] Sql Lite
-- [ ] Add Timer
-- [ ]
+- [x] Add instructions for environment variables
+- [x] Add Timer
