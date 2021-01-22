@@ -6,6 +6,9 @@ const { throttle } = require('lodash');
 
 const at = require('run-at');
 
+const rpio = require('rpio');
+const POWER_RELAY_PIN = 11;
+
 const sensor = require('node-dht-sensor').promises;
 const lcd = new (require('raspberrypi-liquid-crystal'))(1, 0x27, 16, 2);
 
@@ -40,13 +43,18 @@ const SENSOR_INTERVAL = 2500; // How long to poll sensor for updates, in MS
 
 // Notification settings
 const NOTIFICATION_THROTTLE_TIME = 1800000; // 30 min (in ms)
-const LOWER_TEMPERATURE_LIMIT = 72; // In degrees Fahrenheit
-const UPPER_TEMPERATURE_LIMIT = 80; // In degrees Fahrenheit
-const LOWER_HUMIDITY_LIMIT = 70; // In percent
-const UPPER_HUMIDITY_LIMIT = 99; // In percent
+const NOTIFICATION_LOWER_TEMPERATURE_LIMIT = 72; // In degrees Fahrenheit
+const NOTIFICATION_UPPER_TEMPERATURE_LIMIT = 80; // In degrees Fahrenheit
+const NOTIFICATION_LOWER_HUMIDITY_LIMIT = 70; // In percent
+const NOTIFICATION_UPPER_HUMIDITY_LIMIT = 99; // In percent
 
 const convertCelsiusToFahrenheit = (celsius) => (celsius * 9) / 5 + 32;
 const formatNumber = (number) => parseFloat(number.toFixed(2));
+
+const getPowerRelayState = () => rpio.read(POWER_RELAY_PIN);
+const setPowerRelayState = (on = false) => {
+  rpio.write(POWER_RELAY_PIN, on ? rpio.HIGH : rpio.LOW);
+};
 
 let lcdEnabled = false;
 let lcdTimerEnabled = process.env.LCD_TIMER;
@@ -124,17 +132,41 @@ const sendText = async (body = '') => {
 const sendHumidityAlert = throttle((body) => sendText(body), NOTIFICATION_THROTTLE_TIME);
 const sendTemperatureAlert = throttle((body) => sendText(body), NOTIFICATION_THROTTLE_TIME);
 
-const notifyIfTemperatureOutOfRange = () => {
-  if (temperature <= LOWER_TEMPERATURE_LIMIT) sendTemperatureAlert(`Temperature has fallen BELOW threshold: ${temperature.toFixed(2)} F`);
-  else if (temperature >= UPPER_TEMPERATURE_LIMIT) sendTemperatureAlert(`Temperature has risen ABOVE threshold: ${temperature.toFixed(2)} F`);
+const notifyIfTemperatureOutOfRangeTrigger = () => {
+  if (temperature <= NOTIFICATION_LOWER_TEMPERATURE_LIMIT) sendTemperatureAlert(`Temperature has fallen BELOW threshold: ${temperature.toFixed(2)} F`);
+  else if (temperature >= NOTIFICATION_UPPER_TEMPERATURE_LIMIT) sendTemperatureAlert(`Temperature has risen ABOVE threshold: ${temperature.toFixed(2)} F`);
 };
 
-const notifyIfHumidityOutOfRange = () => {
-  if (humidity <= LOWER_HUMIDITY_LIMIT) sendHumidityAlert(`Humidity has fallen BELOW threshold: ${humidity.toFixed(2)}%`);
-  else if (humidity >= UPPER_HUMIDITY_LIMIT) sendHumidityAlert(`Humidity has risen ABOVE threshold: ${humidity.toFixed(2)}%`);
+const notifyIfHumidityOutOfRangeTrigger = () => {
+  if (humidity <= NOTIFICATION_LOWER_HUMIDITY_LIMIT) sendHumidityAlert(`Humidity has fallen BELOW threshold: ${humidity.toFixed(2)}%`);
+  else if (humidity >= NOTIFICATION_UPPER_HUMIDITY_LIMIT) sendHumidityAlert(`Humidity has risen ABOVE threshold: ${humidity.toFixed(2)}%`);
 };
 
-const sensorTriggers = [notifyIfTemperatureOutOfRange, notifyIfHumidityOutOfRange]; // List of functions to be ran every sensor loop
+const turnOnHeaterTrigger = () => {
+  const LOWER_TEMPERATURE_LIMIT = 75;
+
+  if (temperature < LOWER_TEMPERATURE_LIMIT) {
+    if (getPowerRelayState()) return;
+
+    setPowerRelayState(true);
+    logger.warn('Turning ON heater!');
+    sendText(`Heater ON! Temp: ${temperature}, Limit: ${LOWER_TEMPERATURE_LIMIT}`);
+  }
+};
+
+const turnOffHeaterTrigger = () => {
+  const UPPER_TEMPERATURE_LIMIT = 78.5;
+
+  if (temperature > UPPER_TEMPERATURE_LIMIT) {
+    if (!getPowerRelayState()) return; // Abort if relay is already off
+
+    setPowerRelayState(false);
+    logger.warn('Turning OFF heater!');
+    sendText(`Heater OFF! Temp: ${temperature}, Limit: ${UPPER_TEMPERATURE_LIMIT}`);
+  }
+};
+
+const sensorTriggers = [notifyIfTemperatureOutOfRangeTrigger, notifyIfHumidityOutOfRangeTrigger, turnOnHeaterTrigger, turnOffHeaterTrigger]; // List of functions to be ran every sensor loop
 
 const statsString = (sep = '\n') => {
   let statsString = '';
@@ -152,9 +184,10 @@ const stats = {
   max_humidity: -Infinity,
   min_temperature: Infinity,
   min_humidity: Infinity,
-  avg_temperature: undefined,
-  avg_humidity: undefined,
-  lastUpdated: undefined,
+  avg_temperature: null,
+  avg_humidity: null,
+  lastUpdated: null,
+  power_switch: null,
   uptime: formatISO9075(Date.now()),
 };
 
@@ -185,10 +218,11 @@ async function readSensors() {
     stats['min_humidity'] = Math.min(stats['min_humidity'], humidity);
     stats['avg_temperature'] = (stats['avg_temperature'] + temperature) / 2;
     stats['avg_humidity'] = (stats['avg_humidity'] + humidity) / 2;
+    stats['power_switch'] = getPowerRelayState();
 
     stats['lastUpdated'] = formatISO9075(Date.now());
 
-    logger.info(`
+    logger.debug(`
 -------------------------------------------------------------------------------
 Temperature: ${formatNumber(temperature)}F | Humidity: ${formatNumber(humidity)}%
 Outside Temp: ${formatNumber(outsideTemperature)}F | Outside Humidity: ${formatNumber(outsideHumidity)}%
@@ -239,6 +273,8 @@ function server() {
 }
 
 function init() {
+  rpio.open(POWER_RELAY_PIN, rpio.OUTPUT);
+
   sensor.setMaxRetries(10);
   sensor.initialize(22, 4);
   sensor.initialize(22, 21);
