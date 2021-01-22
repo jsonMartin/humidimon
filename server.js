@@ -117,13 +117,24 @@ const writeSensorDataToLCD = (line1 = '', line2 = '') => {
   lcd.printLineSync(1, line2);
 };
 
-const statsFormattedString = () => `
+const formattedInfoString = () => `
 -------------------------------------------------------------------------------
 Temperature: ${formatNumber(temperature)}F | Humidity: ${formatNumber(humidity)}%
 Outside Temp: ${formatNumber(outsideTemperature)}F | Outside Humidity: ${formatNumber(outsideHumidity)}%
 ----------------------------------------------
 LCD Backlight: ${lcdEnabled ? 'on' : 'off'}
 ${statsString()}-------------------------------------------------------------------------------`;
+
+const statsString = (sep = '\n') => {
+  let statsString = '';
+
+  for (let stat in stats) {
+    if (typeof stats[stat] === 'number') statsString += `${stat}: ${formatNumber(stats[stat])}${sep}`;
+    else statsString += `${stat}: ${stats[stat]}${sep}`;
+  }
+
+  return statsString;
+};
 
 const logToDB = async () => {
   try {
@@ -142,7 +153,7 @@ const logToDB = async () => {
     );
 
     logger.info('Successfully wrote to Database');
-    logger.info(statsFormattedString());
+    logger.info(formattedInfoString());
   } catch (error) {
     logger.error('Error writing to database:', error);
   }
@@ -200,26 +211,16 @@ const turnOffHeaterTrigger = () => {
 
 const sensorTriggers = [notifyIfTemperatureOutOfRangeTrigger, notifyIfHumidityOutOfRangeTrigger, turnOnHeaterTrigger, turnOffHeaterTrigger]; // List of functions to be ran every sensor loop
 
-const statsString = (sep = '\n') => {
-  let statsString = '';
-
-  for (let stat in stats) {
-    if (typeof stats[stat] === 'number') statsString += `${stat}: ${formatNumber(stats[stat])}${sep}`;
-    else statsString += `${stat}: ${stats[stat]}${sep}`;
-  }
-
-  return statsString;
-};
-
 const stats = {
-  max_temperature: -Infinity,
-  max_humidity: -Infinity,
-  min_temperature: Infinity,
-  min_humidity: Infinity,
-  avg_temperature: null,
-  avg_humidity: null,
+  maxTemperature: -Infinity,
+  maxHumidity: -Infinity,
+  minTemperature: Infinity,
+  minHumidity: Infinity,
+  avgTemperature: null,
+  avgHumidity: null,
   lastUpdated: null,
-  power_switch: null,
+  powerSwitch: null,
+  sensorReadCount: 0,
   uptime: formatISO9075(Date.now()),
 };
 
@@ -240,21 +241,21 @@ async function readSensors() {
     // Error Checking
     if (!humidity || !temperature) throw Error('Sensor data missing');
 
-    if (!stats['avg_temperature']) stats['avg_temperature'] = temperature;
-    if (!stats['avg_humidity']) stats['avg_humidity'] = humidity;
+    if (!stats['avgTemperature']) stats['avgTemperature'] = temperature;
+    if (!stats['avgHumidity']) stats['avgHumidity'] = humidity;
 
     // Track stats
-    stats['max_temperature'] = Math.max(stats['max_temperature'], temperature);
-    stats['min_temperature'] = Math.min(stats['min_temperature'], temperature);
-    stats['max_humidity'] = Math.max(stats['max_humidity'], humidity);
-    stats['min_humidity'] = Math.min(stats['min_humidity'], humidity);
-    stats['avg_temperature'] = (stats['avg_temperature'] + temperature) / 2;
-    stats['avg_humidity'] = (stats['avg_humidity'] + humidity) / 2;
-    stats['power_switch'] = getPowerRelayState();
+    stats['maxTemperature'] = Math.max(stats['maxTemperature'], temperature);
+    stats['minTemperature'] = Math.min(stats['minTemperature'], temperature);
+    stats['maxHumidity'] = Math.max(stats['maxHumidity'], humidity);
+    stats['minHumidity'] = Math.min(stats['minHumidity'], humidity);
+    stats['avgTemperature'] = (stats['avgTemperature'] + temperature) / 2;
+    stats['avgHumidity'] = (stats['avgHumidity'] + humidity) / 2;
+    stats['powerSwitch'] = getPowerRelayState();
 
     stats['lastUpdated'] = formatISO9075(Date.now());
 
-    logger.debug(statsFormattedString());
+    stats['sensorReadCount']++ > 0 ? logger.debug(formattedInfoString()) : logger.info(formattedInfoString());
   } catch (error) {
     logger.error('Error:', error);
   }
