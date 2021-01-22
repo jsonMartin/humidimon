@@ -5,6 +5,7 @@ const { formatISO9075 } = require('date-fns');
 const { throttle } = require('lodash');
 
 const at = require('run-at');
+const date = require('date.js');
 
 const rpio = require('rpio');
 const POWER_RELAY_PIN = 11;
@@ -20,8 +21,18 @@ const twilio = new require('twilio')(process.env.ACCOUNT_SID, process.env.AUTH_T
 
 const log4js = require('log4js');
 log4js.configure({
-  appenders: { humidimon: { type: 'file', filename: 'humidimon.log' }, console: { type: 'console' } },
-  categories: { default: { appenders: ['console', 'humidimon'], level: 'trace' } },
+  appenders: {
+    humidimon: { type: 'file', filename: 'humidimon.log' },
+    console: { type: 'console', level: 'info' },
+    humidimonFilter: {
+      type: 'logLevelFilter',
+      appender: 'humidimon',
+      level: 'info',
+    },
+  },
+  categories: {
+    default: { appenders: ['console', 'humidimonFilter'], level: 'trace' },
+  },
 });
 const logger = log4js.getLogger('humidimon');
 
@@ -60,13 +71,18 @@ let lcdEnabled = false;
 let lcdTimerEnabled = process.env.LCD_TIMER;
 
 const setLcdTimers = () => {
+  const LCD_TIMER_ON_TIME = process.env.LCD_TIMER_ON_TIME;
+  const LCD_TIMER_OFF_TIME = process.env.LCD_TIMER_OFF_TIME;
+  const NEW_TIMER_DELAY = 90000; // ms
+
   const lcdTimerOn = () => {
     if (lcdTimerEnabled) {
       lcdOn();
       logger.info('TIMER: Turning on LCD');
       setTimeout(() => {
-        at(process.env.LCD_TIMER_ON_TIME, lcdTimerOn);
-      }, 90000); // Wait until the next minute, to prevent retriggering an alarm for the same minute
+        logger.info('Setting new ON timer for:', date(LCD_TIMER_ON_TIME));
+        at(LCD_TIMER_ON_TIME, lcdTimerOn);
+      }, NEW_TIMER_DELAY); // Wait until the next minute, to prevent retriggering an alarm for the same minute
     }
   };
 
@@ -75,14 +91,15 @@ const setLcdTimers = () => {
       lcdOff();
       logger.info('TIMER: Turning off LCD');
       setTimeout(() => {
-        at(process.env.LCD_TIMER_OFF_TIME, lcdTimerOff);
-      }, 90000); // Wait until the next minute, to prevent retriggering an alarm for the same minute
+        logger.info('Setting new OFF timer for:', date(LCD_TIMER_OFF_TIME));
+        at(LCD_TIMER_OFF_TIME, lcdTimerOff);
+      }, NEW_TIMER_DELAY); // Wait until the next minute, to prevent retriggering an alarm for the same minute
     }
   };
 
-  at(process.env.LCD_TIMER_ON_TIME, lcdTimerOn);
-  at(process.env.LCD_TIMER_OFF_TIME, lcdTimerOff);
-  logger.info(`Set ON Timer for ${process.env.LCD_TIMER_ON_TIME}\nOFF Timer for ${process.env.LCD_TIMER_OFF_TIME}`);
+  at(LCD_TIMER_ON_TIME, lcdTimerOn);
+  at(LCD_TIMER_OFF_TIME, lcdTimerOff);
+  logger.info(`Set ON Timer for ${LCD_TIMER_ON_TIME}\nOFF Timer for ${LCD_TIMER_OFF_TIME}`);
 };
 
 const lcdOn = () => {
@@ -100,20 +117,35 @@ const writeSensorDataToLCD = (line1 = '', line2 = '') => {
   lcd.printLineSync(1, line2);
 };
 
-const logToDB = async () => {
-  const db = await open({
-    filename: 'humidimon.db',
-    driver: sqlite3.Database,
-  });
+const statsFormattedString = () => `
+-------------------------------------------------------------------------------
+Temperature: ${formatNumber(temperature)}F | Humidity: ${formatNumber(humidity)}%
+Outside Temp: ${formatNumber(outsideTemperature)}F | Outside Humidity: ${formatNumber(outsideHumidity)}%
+----------------------------------------------
+LCD Backlight: ${lcdEnabled ? 'on' : 'off'}
+${statsString()}-------------------------------------------------------------------------------`;
 
-  await db.run(
-    'INSERT INTO sensorData (timestamp, temperature, humidity, outsideTemperature, outsideHumidity) VALUES (?, ?, ?, ?, ?)',
-    stats['lastUpdated'],
-    formatNumber(temperature),
-    formatNumber(humidity),
-    formatNumber(outsideTemperature),
-    formatNumber(outsideHumidity)
-  );
+const logToDB = async () => {
+  try {
+    const db = await open({
+      filename: 'humidimon.db',
+      driver: sqlite3.Database,
+    });
+
+    await db.run(
+      'INSERT INTO sensorData (timestamp, temperature, humidity, outsideTemperature, outsideHumidity) VALUES (?, ?, ?, ?, ?)',
+      stats['lastUpdated'],
+      formatNumber(temperature),
+      formatNumber(humidity),
+      formatNumber(outsideTemperature),
+      formatNumber(outsideHumidity)
+    );
+
+    logger.info('Successfully wrote to Database');
+    logger.info(statsFormattedString());
+  } catch (error) {
+    logger.error('Error writing to database:', error);
+  }
 };
 
 const sendText = async (body = '') => {
@@ -222,15 +254,9 @@ async function readSensors() {
 
     stats['lastUpdated'] = formatISO9075(Date.now());
 
-    logger.debug(`
--------------------------------------------------------------------------------
-Temperature: ${formatNumber(temperature)}F | Humidity: ${formatNumber(humidity)}%
-Outside Temp: ${formatNumber(outsideTemperature)}F | Outside Humidity: ${formatNumber(outsideHumidity)}%
-----------------------------------------------
-LCD Backlight: ${lcdEnabled ? 'on' : 'off'}
-${statsString()}-------------------------------------------------------------------------------`);
+    logger.debug(statsFormattedString());
   } catch (error) {
-    logger.error('Error');
+    logger.error('Error:', error);
   }
 }
 
