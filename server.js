@@ -56,9 +56,9 @@ const MODE = 'humidifier'; // Choices for functionality: 'heater' or 'humidifier
 
 // Notification settings
 const NOTIFICATION_THROTTLE_TIME = 1800000; // 30 min (in ms)
-const NOTIFICATION_LOWER_TEMPERATURE_LIMIT = 72; // In degrees Fahrenheit
-const NOTIFICATION_UPPER_TEMPERATURE_LIMIT = 80; // In degrees Fahrenheit
-const NOTIFICATION_LOWER_HUMIDITY_LIMIT = 50; // In percent
+const NOTIFICATION_LOWER_TEMPERATURE_LIMIT = 68; // In degrees Fahrenheit
+const NOTIFICATION_UPPER_TEMPERATURE_LIMIT = 74; // In degrees Fahrenheit
+const NOTIFICATION_LOWER_HUMIDITY_LIMIT = 70; // In percent
 const NOTIFICATION_UPPER_HUMIDITY_LIMIT = 99; // In percent
 
 const convertCelsiusToFahrenheit = (celsius) => (celsius * 9) / 5 + 32;
