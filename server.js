@@ -52,6 +52,8 @@ const SENSORS = {
 };
 const SENSOR_INTERVAL = 2500; // How long to poll sensor for updates, in MS
 
+const MODE = 'humidifier'; // Choices for functionality: 'heater' or 'humidifier'
+
 // Notification settings
 const NOTIFICATION_THROTTLE_TIME = 1800000; // 30 min (in ms)
 const NOTIFICATION_LOWER_TEMPERATURE_LIMIT = 72; // In degrees Fahrenheit
@@ -209,7 +211,31 @@ const turnOffHeaterTrigger = () => {
   }
 };
 
-const sensorTriggers = [notifyIfTemperatureOutOfRangeTrigger, notifyIfHumidityOutOfRangeTrigger, turnOnHeaterTrigger, turnOffHeaterTrigger]; // List of functions to be ran every sensor loop
+const turnOnHumidifierTrigger = () => {
+  const LOWER_HUMIDITY_LIMIT = 80;
+
+  if (humidity < LOWER_HUMIDITY_LIMIT) {
+    if (getPowerRelayState()) return;
+
+    setPowerRelayState(true);
+    logger.warn('Turning ON humidity!');
+    sendText(`Humidifier ON! Humidity: ${humidity}%, Limit: ${LOWER_HUMIDITY_LIMIT}`);
+  }
+};
+
+const turnOffHumidifierTrigger = () => {
+  const UPPER_HUMIDITY_LIMIT = 95;
+
+  if (humidity > UPPER_HUMIDITY_LIMIT) {
+    if (!getPowerRelayState()) return;
+
+    setPowerRelayState(false);
+    logger.warn('Turning OFF humidifier!');
+    sendText(`Humidifier OFF! Humidity: ${humiditiy}, Limit: ${UPPER_HUMIDITY_LIMIT}`);
+  }
+};
+
+const sensorTriggers = MODE === 'heater' ? [notifyIfTemperatureOutOfRangeTrigger, notifyIfHumidityOutOfRangeTrigger, turnOnHeaterTrigger, turnOffHeaterTrigger] : [notifyIfTemperatureOutOfRangeTrigger, notifyIfHumidityOutOfRangeTrigger, turnOnHumidifierTrigger, turnOffHumidifierTrigger] // List of functions to be ran every sensor loop
 
 const stats = {
   maxTemperature: -Infinity,
