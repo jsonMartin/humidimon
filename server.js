@@ -231,7 +231,7 @@ const turnOffHumidifierTrigger = () => {
 
     setPowerRelayState(false);
     logger.warn('Turning OFF humidifier!');
-    sendText(`Humidifier OFF! Humidity: ${humiditiy}, Limit: ${UPPER_HUMIDITY_LIMIT}`);
+    sendText(`Humidifier OFF! Humidity: ${humidity}%, Limit: ${UPPER_HUMIDITY_LIMIT}`);
   }
 };
 
