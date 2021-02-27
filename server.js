@@ -1,4 +1,5 @@
 require('dotenv').config();
+const config = require('./config.json');
 
 const { formatISO9075 } = require('date-fns');
 
@@ -40,8 +41,7 @@ const sqlite3 = require('sqlite3');
 const { open } = require('sqlite');
 
 const DB_UPDATE_INTERVAL = 60000; // in MS
-
-const PORT = process.env.PORT;
+const PORT = config.PORT;
 
 // DHT sensor configuration
 const SENSOR_TYPE = 22; // 22 for DHT-22, 11 for DHT-11 sensor
@@ -50,17 +50,11 @@ const SENSORS = {
   Inside: 4,
   Outside: 21,
 };
-const SENSOR_INTERVAL = 2500; // How long to poll sensor for updates, in MS
+const SENSOR_INTERVAL = 3000; // How long to poll sensor for updates, in MS
 
 const MODE = 'humidifier'; // Choices for functionality: 'heater' or 'humidifier'
 
 // Notification settings
-const NOTIFICATION_THROTTLE_TIME = 1800000; // 30 min (in ms)
-const NOTIFICATION_LOWER_TEMPERATURE_LIMIT = 68; // In degrees Fahrenheit
-const NOTIFICATION_UPPER_TEMPERATURE_LIMIT = 74; // In degrees Fahrenheit
-const NOTIFICATION_LOWER_HUMIDITY_LIMIT = 70; // In percent
-const NOTIFICATION_UPPER_HUMIDITY_LIMIT = 99; // In percent
-
 const convertCelsiusToFahrenheit = (celsius) => (celsius * 9) / 5 + 32;
 const formatNumber = (number) => parseFloat(number.toFixed(2));
 
@@ -70,11 +64,11 @@ const setPowerRelayState = (on = false) => {
 };
 
 let lcdEnabled = false;
-let lcdTimerEnabled = process.env.LCD_TIMER;
+let lcdTimerEnabled = config.LCD_TIMER;
 
 const setLcdTimers = () => {
-  const LCD_TIMER_ON_TIME = process.env.LCD_TIMER_ON_TIME;
-  const LCD_TIMER_OFF_TIME = process.env.LCD_TIMER_OFF_TIME;
+  const LCD_TIMER_ON_TIME = config.LCD_TIMER_ON_TIME;
+  const LCD_TIMER_OFF_TIME = config.LCD_TIMER_OFF_TIME;
   const NEW_TIMER_DELAY = 90000; // ms
 
   const lcdTimerOn = () => {
@@ -162,80 +156,80 @@ const logToDB = async () => {
 };
 
 const sendText = async (body = '') => {
-  logger.info('Attempting to send text...');
+  try {
+    logger.info('Attempting to send text...');
 
-  let result = await twilio.messages.create({
-    body,
-    to: process.env.TWILIO_SEND_TO_NUMBER,
-    from: process.env.TWILIO_SEND_FROM_NUMBER,
-  });
+    let result = await twilio.messages.create({
+      body,
+      to: config.TWILIO_SEND_TO_NUMBER,
+      from: config.TWILIO_SEND_FROM_NUMBER,
+    });
 
-  if (!result.errorCode) logger.info(`Successfully sent text with contents: ${result.body}`);
-  else logger.error(`Error sending text: ${result.errorCode}`);
+    if (!result.errorCode) logger.info(`Successfully sent text with contents: ${result.body}`);
+    else logger.error(`Error sending text: ${result.errorCode}`);
+  } catch (error) {
+    logger.error('Error sending Twilio notification', error);
+  }
 };
 
-const sendHumidityAlert = throttle((body) => sendText(body), NOTIFICATION_THROTTLE_TIME);
-const sendTemperatureAlert = throttle((body) => sendText(body), NOTIFICATION_THROTTLE_TIME);
+const sendHumidityAlert = throttle((body) => sendText(body), config.NOTIFICATION_THROTTLE_TIME);
+const sendTemperatureAlert = throttle((body) => sendText(body), config.NOTIFICATION_THROTTLE_TIME);
 
 const notifyIfTemperatureOutOfRangeTrigger = () => {
-  if (temperature <= NOTIFICATION_LOWER_TEMPERATURE_LIMIT) sendTemperatureAlert(`Temperature has fallen BELOW threshold: ${temperature.toFixed(2)} F`);
-  else if (temperature >= NOTIFICATION_UPPER_TEMPERATURE_LIMIT) sendTemperatureAlert(`Temperature has risen ABOVE threshold: ${temperature.toFixed(2)} F`);
+  if (temperature <= config.NOTIFICATION_LOWER_TEMPERATURE_LIMIT) sendTemperatureAlert(`Temperature has fallen BELOW threshold: ${temperature.toFixed(2)} F`);
+  else if (temperature >= config.NOTIFICATION_UPPER_TEMPERATURE_LIMIT)
+    sendTemperatureAlert(`Temperature has risen ABOVE threshold: ${temperature.toFixed(2)} F`);
 };
 
 const notifyIfHumidityOutOfRangeTrigger = () => {
-  if (humidity <= NOTIFICATION_LOWER_HUMIDITY_LIMIT) sendHumidityAlert(`Humidity has fallen BELOW threshold: ${humidity.toFixed(2)}%`);
-  else if (humidity >= NOTIFICATION_UPPER_HUMIDITY_LIMIT) sendHumidityAlert(`Humidity has risen ABOVE threshold: ${humidity.toFixed(2)}%`);
+  if (humidity <= config.NOTIFICATION_LOWER_HUMIDITY_LIMIT) sendHumidityAlert(`Humidity has fallen BELOW threshold: ${humidity.toFixed(2)}%`);
+  else if (humidity >= config.NOTIFICATION_UPPER_HUMIDITY_LIMIT) sendHumidityAlert(`Humidity has risen ABOVE threshold: ${humidity.toFixed(2)}%`);
 };
 
 const turnOnHeaterTrigger = () => {
-  const LOWER_TEMPERATURE_LIMIT = 76.5;
-
-  if (temperature < LOWER_TEMPERATURE_LIMIT) {
+  if (temperature < config.LOWER_TEMPERATURE_LIMIT_TRIGGER) {
     if (getPowerRelayState()) return;
 
     setPowerRelayState(true);
     logger.warn('Turning ON heater!');
-    sendText(`Heater ON! Temp: ${temperature}, Limit: ${LOWER_TEMPERATURE_LIMIT}`);
+    // sendText(`Heater ON! Temp: ${temperature}, Limit: ${config.LOWER_TEMPERATURE_LIMIT_TRIGGER}`);
   }
 };
 
 const turnOffHeaterTrigger = () => {
-  const UPPER_TEMPERATURE_LIMIT = 78.5;
-
-  if (temperature > UPPER_TEMPERATURE_LIMIT) {
+  if (temperature > config.UPPER_TEMPERATURE_LIMIT_TRIGGER) {
     if (!getPowerRelayState()) return; // Abort if relay is already off
 
     setPowerRelayState(false);
     logger.warn('Turning OFF heater!');
-    sendText(`Heater OFF! Temp: ${temperature}, Limit: ${UPPER_TEMPERATURE_LIMIT}`);
+    // sendText(`Heater OFF! Temp: ${temperature}, Limit: ${config.UPPER_TEMPERATURE_LIMIT_TRIGGER}`);
   }
 };
 
 const turnOnHumidifierTrigger = () => {
-  const LOWER_HUMIDITY_LIMIT = 80;
-
-  if (humidity < LOWER_HUMIDITY_LIMIT) {
+  if (humidity < config.LOWER_HUMIDITY_LIMIT_TRIGGER) {
     if (getPowerRelayState()) return;
 
     setPowerRelayState(true);
-    logger.warn('Turning ON humidity!');
-    sendText(`Humidifier ON! Humidity: ${humidity}%, Limit: ${LOWER_HUMIDITY_LIMIT}`);
+    logger.warn('Turning ON humidifier!');
+    // sendText(`Humidifier ON! Humidity: ${humidity}%, Limit: ${config.LOWER_HUMIDITY_LIMIT_TRIGGER}`);
   }
 };
 
 const turnOffHumidifierTrigger = () => {
-  const UPPER_HUMIDITY_LIMIT = 95;
-
-  if (humidity > UPPER_HUMIDITY_LIMIT) {
+  if (humidity > config.UPPER_HUMIDITY_LIMIT_TRIGGER) {
     if (!getPowerRelayState()) return;
 
     setPowerRelayState(false);
     logger.warn('Turning OFF humidifier!');
-    sendText(`Humidifier OFF! Humidity: ${humidity}%, Limit: ${UPPER_HUMIDITY_LIMIT}`);
+    // sendText(`Humidifier OFF! Humidity: ${humidity}%, Limit: ${config.UPPER_HUMIDITY_LIMIT_TRIGGER}`);
   }
 };
 
-const sensorTriggers = MODE === 'heater' ? [notifyIfTemperatureOutOfRangeTrigger, notifyIfHumidityOutOfRangeTrigger, turnOnHeaterTrigger, turnOffHeaterTrigger] : [notifyIfTemperatureOutOfRangeTrigger, notifyIfHumidityOutOfRangeTrigger, turnOnHumidifierTrigger, turnOffHumidifierTrigger] // List of functions to be ran every sensor loop
+const sensorTriggers =
+  MODE === 'heater'
+    ? [notifyIfTemperatureOutOfRangeTrigger, notifyIfHumidityOutOfRangeTrigger, turnOnHeaterTrigger, turnOffHeaterTrigger]
+    : [notifyIfTemperatureOutOfRangeTrigger, notifyIfHumidityOutOfRangeTrigger, turnOnHumidifierTrigger, turnOffHumidifierTrigger]; // List of functions to be ran every sensor loop
 
 const stats = {
   maxTemperature: -Infinity,
@@ -247,22 +241,26 @@ const stats = {
   lastUpdated: null,
   powerSwitch: null,
   sensorReadCount: 0,
+  sensorErrorCount: 0,
   uptime: formatISO9075(Date.now()),
 };
 
 let [humidity, temperature, outsideHumidity, outsideTemperature] = [0, 0, 0, 0];
+let sensorLoopInterval;
 
 async function readSensors() {
   try {
     // Read Inside Sensor
     let insideSensorResult = await sensor.read(SENSOR_TYPE, SENSORS['Inside']);
-    temperature = convertCelsiusToFahrenheit(insideSensorResult.temperature);
-    humidity = insideSensorResult.humidity;
+
+    // Temporarily Disable outside sensor
+    outsideTemperature = temperature = convertCelsiusToFahrenheit(insideSensorResult.temperature);
+    outsideHumidity = humidity = insideSensorResult.humidity;
 
     // Read Outside Sensor
-    let outdoorSensorResult = await sensor.read(SENSOR_TYPE, SENSORS['Outside']);
-    outsideTemperature = convertCelsiusToFahrenheit(outdoorSensorResult.temperature);
-    outsideHumidity = outdoorSensorResult.humidity;
+    // let outdoorSensorResult = await sensor.read(SENSOR_TYPE, SENSORS['Outside']);
+    // outsideTemperature = convertCelsiusToFahrenheit(outdoorSensorResult.temperature);
+    // outsideHumidity = outdoorSensorResult.humidity;
 
     // Error Checking
     if (!humidity || !temperature) throw Error('Sensor data missing');
@@ -278,22 +276,52 @@ async function readSensors() {
     stats['avgTemperature'] = (stats['avgTemperature'] + temperature) / 2;
     stats['avgHumidity'] = (stats['avgHumidity'] + humidity) / 2;
     stats['powerSwitch'] = getPowerRelayState();
-
     stats['lastUpdated'] = formatISO9075(Date.now());
 
     stats['sensorReadCount']++ > 0 ? logger.debug(formattedInfoString()) : logger.info(formattedInfoString());
+    return true;
   } catch (error) {
     logger.error('Error:', error);
+    stats['sensorErrorCount']++;
+    return false;
   }
 }
 
-async function sensorLoop() {
-  await readSensors();
-  writeSensorDataToLCD(`Temp:     ${temperature.toFixed(2)}F`, `Humidity: ${humidity.toFixed(2)}%`);
+async function sensorModeLoop() {
+  let results = await readSensors();
+  if (results) {
+    writeSensorDataToLCD(`Temp:     ${temperature.toFixed(2)}F`, `Humidity: ${humidity.toFixed(2)}%`);
 
-  for (sensorTrigger of sensorTriggers) {
-    sensorTrigger(); // Run Sensor Trigger Hooks
+    for (sensorTrigger of sensorTriggers) {
+      sensorTrigger(); // Run Sensor Trigger Hooks
+    }
+  } else {
+    if (stats['sensorErrorCount'] >= config.NOTIFICATION_SENSOR_ERROR_LIMIT) {
+      sendText(`Error reading sensor ${stats['sensorErrorCount']} times, switching to timer mode`);
+      timerModeLoop();
+      return;
+    }
   }
+
+  setTimeout(sensorModeLoop, SENSOR_INTERVAL);
+}
+
+function timerModeLoop() {
+  // This runs as a failsafe if the sensors stop working
+  const ON_TIME = 60000 * 10; // 10 min
+  const OFF_TIME = 60000 * 20; // 20 min
+  // const ON_TIME = 60000 * 10; // 10 min
+  // const OFF_TIME = 60000 * 15; // 15 min
+  setPowerRelayState(false);
+  sendText('Timer Loop: Toggling OFF');
+  writeSensorDataToLCD('TIMER MODE', 'OFF');
+  setTimeout(() => {
+    setPowerRelayState(true);
+    writeSensorDataToLCD('TIMER MODE', 'ON');
+    sendText('Timer Loop: Toggling ON');
+  }, ON_TIME);
+
+  setTimeout(timerModeLoop, OFF_TIME); // Recursive loop
 }
 
 function server() {
@@ -342,7 +370,9 @@ async function main() {
   init();
   server();
 
-  setInterval(sensorLoop, SENSOR_INTERVAL);
+  sensorModeLoop();
+  // sensorLoopInterval = setInterval(sensorModeLoop, SENSOR_INTERVAL);
+  // timerModeLoop(); // TODO: Remove if the sensor error mode works
   setInterval(logToDB, DB_UPDATE_INTERVAL);
   sendText('Humidimon successfully started');
 }

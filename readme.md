@@ -31,6 +31,7 @@ LCD_TIMER=true
 # TO-DO
 - [ ] Add Endpoint to toggle LCD timer on/off
 - [ ] Customize DB update frequency in `env` file
+-
 - [x] Sql Lite
 - [x] Add instructions for environment variables
 - [x] Add Timer
