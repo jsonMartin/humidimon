@@ -116,7 +116,6 @@ const writeSensorDataToLCD = (line1 = '', line2 = '') => {
 const formattedInfoString = () => `
 -------------------------------------------------------------------------------
 Temperature: ${formatNumber(temperature)}F | Humidity: ${formatNumber(humidity)}%
-Outside Temp: ${formatNumber(outsideTemperature)}F | Outside Humidity: ${formatNumber(outsideHumidity)}%
 ----------------------------------------------
 LCD Backlight: ${lcdEnabled ? 'on' : 'off'}
 ${statsString()}-------------------------------------------------------------------------------`;
@@ -140,12 +139,10 @@ const logToDB = async () => {
     });
 
     await db.run(
-      'INSERT INTO sensorData (timestamp, temperature, humidity, outsideTemperature, outsideHumidity) VALUES (?, ?, ?, ?, ?)',
+      'INSERT INTO sensorData (timestamp, temperature, humidity) VALUES (?, ?, ?)',
       stats['lastUpdated'],
       formatNumber(temperature),
       formatNumber(humidity),
-      formatNumber(outsideTemperature),
-      formatNumber(outsideHumidity)
     );
 
     logger.info('Successfully wrote to Database');
@@ -245,22 +242,16 @@ const stats = {
   uptime: formatISO9075(Date.now()),
 };
 
-let [humidity, temperature, outsideHumidity, outsideTemperature] = [0, 0, 0, 0];
-let sensorLoopInterval;
+let [humidity, temperature] = [0, 0];
 
 async function readSensors() {
   try {
     // Read Inside Sensor
     let insideSensorResult = await sensor.read(SENSOR_TYPE, SENSORS['Inside']);
 
-    // Temporarily Disable outside sensor
-    outsideTemperature = temperature = convertCelsiusToFahrenheit(insideSensorResult.temperature);
-    outsideHumidity = humidity = insideSensorResult.humidity;
-
-    // Read Outside Sensor
-    // let outdoorSensorResult = await sensor.read(SENSOR_TYPE, SENSORS['Outside']);
-    // outsideTemperature = convertCelsiusToFahrenheit(outdoorSensorResult.temperature);
-    // outsideHumidity = outdoorSensorResult.humidity;
+    // Save Sensor Results
+    temperature = convertCelsiusToFahrenheit(insideSensorResult.temperature);
+    humidity = insideSensorResult.humidity;
 
     // Error Checking
     if (!humidity || !temperature) throw Error('Sensor data missing');
@@ -310,8 +301,6 @@ function timerModeLoop() {
   // This runs as a failsafe if the sensors stop working
   const ON_TIME = 60000 * 10; // 10 min
   const OFF_TIME = 60000 * 20; // 20 min
-  // const ON_TIME = 60000 * 10; // 10 min
-  // const OFF_TIME = 60000 * 15; // 15 min
   setPowerRelayState(false);
   sendText('Timer Loop: Toggling OFF');
   writeSensorDataToLCD('TIMER MODE', 'OFF');
@@ -331,8 +320,6 @@ function server() {
       response.render('index', {
         temperature: temperature.toFixed(2),
         humidity: humidity.toFixed(2),
-        outsideHumidity: outsideHumidity.toFixed(2),
-        outsideTemperature: outsideTemperature.toFixed(2),
         stats,
         lcdEnabled,
       });
@@ -371,8 +358,6 @@ async function main() {
   server();
 
   sensorModeLoop();
-  // sensorLoopInterval = setInterval(sensorModeLoop, SENSOR_INTERVAL);
-  // timerModeLoop(); // TODO: Remove if the sensor error mode works
   setInterval(logToDB, DB_UPDATE_INTERVAL);
   sendText('Humidimon successfully started');
 }

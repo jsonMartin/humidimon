@@ -20,18 +20,36 @@
 ```
 ACCOUNT_SID=your account sid
 AUTH_TOKEN=your auth token
-TWILIO_SEND_TO_NUMBER=+1234567890
-TWILIO_SEND_FROM_NUMBER=+1234567890
-PORT=12345
-LCD_TIMER_ON_TIME='10 am'
-LCD_TIMER_OFF_TIME='11 pm'
-LCD_TIMER=true
+```
+
+# Sample `config.json` file
+```
+{
+  "TWILIO_SEND_TO_NUMBER": "+1234567890",
+  "TWILIO_SEND_FROM_NUMBER": "+1234567890",
+  "PORT": "1234",
+  "LCD_TIMER_ON_TIME": "11:00 am",
+  "LCD_TIMER_OFF_TIME": "11:00 pm",
+  "LCD_TIMER": true,
+
+  "NOTIFICATION_THROTTLE_TIME": 1800000,
+  "NOTIFICATION_LOWER_TEMPERATURE_LIMIT": 68,
+  "NOTIFICATION_UPPER_TEMPERATURE_LIMIT": 74,
+  "NOTIFICATION_LOWER_HUMIDITY_LIMIT": 70,
+  "NOTIFICATION_UPPER_HUMIDITY_LIMIT": 99,
+  "NOTIFICATION_SENSOR_ERROR_LIMIT": 10,
+
+  "LOWER_HUMIDITY_LIMIT_TRIGGER": 85,
+  "UPPER_HUMIDITY_LIMIT_TRIGGER": 95,
+
+  "LOWER_TEMPERATURE_LIMIT_TRIGGER": 76.5,
+  "UPPER_TEMPERATURE_LIMIT_TRIGGER": 78.5
+}
 ```
 
 # TO-DO
-- [ ] Add Endpoint to toggle LCD timer on/off
-- [ ] Customize DB update frequency in `env` file
--
+- [ ] Customize DB update frequency in `config.js` file
+- [x] Add Endpoint to toggle LCD timer on/off
 - [x] Sql Lite
 - [x] Add instructions for environment variables
 - [x] Add Timer
