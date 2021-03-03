@@ -1,7 +1,7 @@
 require('dotenv').config();
 const config = require('./config.json');
 
-const { formatISO9075, intervalToDuration } = require('date-fns');
+const { formatISO9075, intervalToDuration, formatDuration } = require('date-fns');
 
 const { throttle } = require('lodash');
 
@@ -58,10 +58,10 @@ const MODE = 'humidifier'; // Choices for functionality: 'heater' or 'humidifier
 const convertCelsiusToFahrenheit = (celsius) => (celsius * 9) / 5 + 32;
 const formatNumber = (number) => parseFloat(number.toFixed(2));
 
-const getPowerRelayState = () => rpio.read(POWER_RELAY_PIN);
+const getPowerRelayState = () => Boolean(rpio.read(POWER_RELAY_PIN));
 const setPowerRelayState = (on = false) => {
   rpio.write(POWER_RELAY_PIN, on ? rpio.HIGH : rpio.LOW);
-  logPowerSwitch();
+  logPowerSwitchStatus();
 };
 
 let lcdEnabled = false;
@@ -126,7 +126,7 @@ const statsString = (sep = '\n') => {
 
   for (let stat in stats) {
     if (typeof stats[stat] === 'number') statsString += `${stat}: ${formatNumber(stats[stat])}${sep}`;
-    else if (typeof stats[stat] === "object" && !Array.isArray(stats[stat])) statsString += `${stat}: ${JSON.stringify(stats[stat])}${sep}`;
+    else if (typeof stats[stat] === 'object' && !Array.isArray(stats[stat])) statsString += `${stat}: ${JSON.stringify(stats[stat])}${sep}`;
     else if (Array.isArray(stats[stat])) statsString += `${stat}: ${JSON.stringify(stats[stat])}${sep}`;
     else statsString += `${stat}: ${stats[stat]}${sep}`;
   }
@@ -134,17 +134,45 @@ const statsString = (sep = '\n') => {
   return statsString;
 };
 
-const logPowerSwitch = () => {
-  const lastEntry = stats['powerSwitchLog'].length >= 1 ? stats['powerSwitchLog'].slice(-1)[0] : false;
-  stats['powerSwitchLog'].push({
+const powerSwitchLog = [];
+const logPowerSwitchStatus = () => {
+  const lastEntry = powerSwitchLog.length >= 1 ? powerSwitchLog.slice(-1)[0] : false;
+
+  if (lastEntry) {
+    lastEntry['interval'] = intervalToDuration({
+      start: lastEntry['timestamp'],
+      end: new Date(),
+    });
+
+    lastEntry['seconds'] =
+      lastEntry['interval']['seconds'] +
+      lastEntry['interval']['minutes'] * 60 +
+      lastEntry['interval']['hours'] * 60 * 60 +
+      lastEntry['interval']['days'] * 60 * 60 * 24;
+    formatDuration(lastEntry['interval'], { format: ['seconds'] });
+
+    lastEntry['duration'] = formatDuration(lastEntry['interval']);
+  }
+
+  powerSwitchLog.push({
     on: getPowerRelayState(),
     timestamp: new Date(),
-    interval: lastEntry ? (intervalToDuration({
-      start: lastEntry['timestamp'],
-      end: new Date()
-    })) : 0
+    interval: 0,
+    seconds: 0,
+    duration: 0,
   });
-}
+};
+const powerSwitchLogAverages = () => {
+  const onEntries = powerSwitchLog.filter((entry) => entry.on && entry.seconds > 0);
+  const onSum = onEntries.map((entry) => entry.seconds).reduce((accumulator, currentValue) => accumulator + currentValue, 0);
+  const onAvg = onSum / onEntries.length;
+
+  const offEntries = powerSwitchLog.filter((entry) => !entry.on && entry.seconds > 0);
+  const offSum = offEntries.map((entry) => entry.seconds).reduce((accumulator, currentValue) => accumulator + currentValue, 0);
+  const offAvg = offSum / offEntries.length;
+
+  return { onAvg, offAvg };
+};
 
 const logToDB = async () => {
   try {
@@ -157,7 +185,7 @@ const logToDB = async () => {
       'INSERT INTO sensorData (timestamp, temperature, humidity) VALUES (?, ?, ?)',
       stats['lastUpdated'],
       formatNumber(temperature),
-      formatNumber(humidity),
+      formatNumber(humidity)
     );
 
     logger.info('Successfully wrote to Database');
@@ -340,6 +368,11 @@ function server() {
         humidity: humidity.toFixed(2),
         stats,
         lcdEnabled,
+        powerSwitchLog,
+        powerSwitchLogAverages,
+        formatDuration,
+        formatISO9075,
+        intervalToDuration
       });
   });
 
@@ -370,7 +403,7 @@ function init() {
   lcdEnabled = true;
   setLcdTimers();
 
-  logPowerSwitch();
+  logPowerSwitchStatus();
 }
 
 async function main() {

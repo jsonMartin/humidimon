@@ -48,7 +48,9 @@ AUTH_TOKEN=your auth token
 ```
 
 # TO-DO
+- [ ] Endpoint to set humidity limits
 - [ ] Customize DB update frequency in `config.js` file
+- [x] Log and Calculate Averages for on/off times
 - [x] Add Endpoint to toggle LCD timer on/off
 - [x] Sql Lite
 - [x] Add instructions for environment variables

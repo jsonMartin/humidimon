@@ -54,11 +54,7 @@ html
   body
     h1 Temperature: #{temperature}<span>&#176;</span>F
     h1 Humidity: #{humidity}%
-    hr
-    em Last updated: #{stats.lastUpdated}
-    ul
-      each stat, name in stats
-        li #{name}: #{stat}
+    h2 Humidifier: #{Boolean(stats['powerSwitch'])}
     hr
     div(class='lcd')
       if lcdEnabled
@@ -69,3 +65,18 @@ html
         button TURN OFF LED
       a(href='/led/on')
         button TURN ON LED
+    hr
+    em Last updated: #{stats.lastUpdated}
+    ul
+      each stat, name in stats
+        li #{name}: #{JSON.stringify(stat)}
+    hr
+
+    h1 Power Switch Log
+    - const powerLogAvg = powerSwitchLogAverages();
+    //- Need to add 1000 to end times due to MS
+    h2 On Average Time: #{formatDuration(intervalToDuration({start: 0, end: powerLogAvg['onAvg'] * 1000}))}
+    h2 Off Average Time: #{formatDuration(intervalToDuration({start: 0, end: powerLogAvg['offAvg'] * 1000}))}
+    ul
+      each log in powerSwitchLog
+        li #{log.on ? 'On' : 'Off'} | #{log.timestamp ? formatISO9075(log.timestamp) : 0} | Duration: #{log.duration}
