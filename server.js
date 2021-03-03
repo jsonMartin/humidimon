@@ -1,7 +1,7 @@
 require('dotenv').config();
 const config = require('./config.json');
 
-const { formatISO9075 } = require('date-fns');
+const { formatISO9075, intervalToDuration } = require('date-fns');
 
 const { throttle } = require('lodash');
 
@@ -61,6 +61,7 @@ const formatNumber = (number) => parseFloat(number.toFixed(2));
 const getPowerRelayState = () => rpio.read(POWER_RELAY_PIN);
 const setPowerRelayState = (on = false) => {
   rpio.write(POWER_RELAY_PIN, on ? rpio.HIGH : rpio.LOW);
+  logPowerSwitch();
 };
 
 let lcdEnabled = false;
@@ -125,11 +126,25 @@ const statsString = (sep = '\n') => {
 
   for (let stat in stats) {
     if (typeof stats[stat] === 'number') statsString += `${stat}: ${formatNumber(stats[stat])}${sep}`;
+    else if (typeof stats[stat] === "object" && !Array.isArray(stats[stat])) statsString += `${stat}: ${JSON.stringify(stats[stat])}${sep}`;
+    else if (Array.isArray(stats[stat])) statsString += `${stat}: ${JSON.stringify(stats[stat])}${sep}`;
     else statsString += `${stat}: ${stats[stat]}${sep}`;
   }
 
   return statsString;
 };
+
+const logPowerSwitch = () => {
+  const lastEntry = stats['powerSwitchLog'].length >= 1 ? stats['powerSwitchLog'].slice(-1)[0] : false;
+  stats['powerSwitchLog'].push({
+    on: getPowerRelayState(),
+    timestamp: new Date(),
+    interval: lastEntry ? (intervalToDuration({
+      start: lastEntry['timestamp'],
+      end: new Date()
+    })) : 0
+  });
+}
 
 const logToDB = async () => {
   try {
@@ -236,9 +251,12 @@ const stats = {
   avgTemperature: null,
   avgHumidity: null,
   lastUpdated: null,
-  powerSwitch: null,
   sensorReadCount: 0,
   sensorErrorCount: 0,
+
+  powerSwitch: null,
+  powerSwitchLog: [],
+
   uptime: formatISO9075(Date.now()),
 };
 
@@ -351,6 +369,8 @@ function init() {
   lcd.displaySync(); // Turns on the display
   lcdEnabled = true;
   setLcdTimers();
+
+  logPowerSwitch();
 }
 
 async function main() {
