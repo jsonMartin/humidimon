@@ -118,6 +118,7 @@ const formattedInfoString = () => `
 -------------------------------------------------------------------------------
 Temperature: ${formatNumber(temperature)}F | Humidity: ${formatNumber(humidity)}%
 ----------------------------------------------
+Humidifier: ${stats['powerSwitch'] ? 'on' : 'off'}
 LCD Backlight: ${lcdEnabled ? 'on' : 'off'}
 ${statsString()}-------------------------------------------------------------------------------`;
 
@@ -171,7 +172,7 @@ const powerSwitchLogAverages = () => {
   const offSum = offEntries.map((entry) => entry.seconds).reduce((accumulator, currentValue) => accumulator + currentValue, 0);
   const offAvg = offSum / offEntries.length;
 
-  return { onAvg, offAvg };
+  return { onAvg: (onAvg ? onAvg : 0), offAvg: (offAvg ? offAvg : 0) };
 };
 
 const logToDB = async () => {
@@ -281,10 +282,7 @@ const stats = {
   lastUpdated: null,
   sensorReadCount: 0,
   sensorErrorCount: 0,
-
   powerSwitch: null,
-  powerSwitchLog: [],
-
   uptime: formatISO9075(Date.now()),
 };
 
